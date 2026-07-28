@@ -38,3 +38,8 @@
 .idea
 *.iml
 /nginx-tomcat9/
+
+# dist-build artifacts
+/dist-build/cache/
+/dist-build/out/
+/dist-build/build-macos/
