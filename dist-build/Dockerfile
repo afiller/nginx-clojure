@@ -7,7 +7,7 @@
 #  Builder image for the self-built nginx-clojure distribution.
 #
 
-ARG BASE_IMAGE=debian:bullseye
+ARG BASE_IMAGE=ubuntu:22.04
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive

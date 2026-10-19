@@ -73,7 +73,7 @@ Jobserver-Bug in GNU make 4.3 aus (Details im `Dockerfile`) und bringt nichts �
 beide SONAMEs sind überall stabil und werden auf dem Zielhost von `apt`
 gepatcht. Das ersetzt zugleich das veraltete PCRE1 8.40 der Upstream-Builds.
 
-Unter Linux liefert das Build-Image die Pakete (`debian:bullseye`), unter macOS
+Unter Linux liefert das Build-Image die Pakete (`ubuntu:22.04`), unter macOS
 Homebrew. Auf Apple Silicon wird für den Linux-Build `linux/amd64` per QEMU
 emuliert — ein vollständiger Durchgang inklusive OpenSSL dauert dort rund 10
 Minuten. nginx- und OpenSSL-Quellen landen in `cache/`, Folgebuilds sparen den
@@ -98,17 +98,22 @@ gleicher oder neuerer glibc:
 
 | | glibc | Binary läuft? |
 |---|---|---|
-| `debian:bullseye` (Build-Image) | 2.31 | — |
-| Ubuntu 20.04 | 2.31 | ja (exakt gleich) |
-| Ubuntu 22.04 | 2.35 | ja |
+| `ubuntu:22.04` (Build-Image) | 2.35 | — |
+| Ubuntu 20.04 | 2.31 | **nein** |
+| Ubuntu 22.04 | 2.35 | ja (exakt gleich) |
 | Ubuntu 24.04 | 2.39 | ja |
 
-Ubuntu 20.04 ist der Grenzfall: identische glibc, **kein Puffer**. Ein Wechsel
-auf `debian:bookworm` (glibc 2.36) würde 20.04 *und* 22.04 ausschließen.
+Bis 1.30.4 war `debian:bullseye` (glibc 2.31) das Build-Image und deckte auch
+Ubuntu 20.04 ab. Seit dem Ende des Bullseye-LTS (Oktober 2026) liefert dessen
+Security-Mirror keine Pakete mehr, `apt-get install` im Build scheitert mit 404.
+Ubuntu 20.04 ist deshalb kein Ziel mehr.
+
+Ubuntu 22.04 ist jetzt der Grenzfall: identische glibc, **kein Puffer**. Ein
+Wechsel auf `debian:bookworm` (glibc 2.36) würde 22.04 ausschließen.
 `BASE_IMAGE` deshalb nicht ohne Prüfung der Zielhosts anheben.
 
 Dynamisch gelinkt werden `libpcre2-8.so.0`, `libz.so.1`, `libcrypt.so.1` und
-`libdl.so.2` — alle vier sind in den nackten Ubuntu-Images 20.04/22.04/24.04
+`libdl.so.2` — alle vier sind in den nackten Ubuntu-Images 22.04/24.04
 bereits vorhanden, es muss nichts nachinstalliert werden. OpenSSL ist statisch
 einkompiliert (siehe unten).
 
@@ -159,7 +164,7 @@ shasum -a 256 nginx-1.28.0.tar.gz
 ```
 
 Der Signierschlüssel wechselt je nach Release-Manager — die passende `.key`-Datei
-steht auf <https://nginx.org/en/pgp_keys.html>. Für 1.30.4 war es `arut.key`.
+steht auf <https://nginx.org/en/pgp_keys.html>. Für 1.30.4 war es `arut.key`, für 1.30.6 `pluknet.key`.
 
 Für OpenSSL analog, hier über den Fingerprint der Signatur:
 
