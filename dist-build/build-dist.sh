@@ -15,6 +15,9 @@
 #     ./build-dist.sh --pack-only            # re-pack out/<dist>/ without
 #                                            # rebuilding (e.g. after adding a
 #                                            # macOS binary via build-macos.sh)
+#     ./build-dist.sh --plain                # plain nginx without the
+#                                            # nginx-clojure module, built on
+#                                            # PLAIN_BASE_IMAGE (see versions.env)
 #
 #  Everything is pinned in versions.env. The result lands in out/.
 #
@@ -25,7 +28,14 @@ DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$DIR"
 
 PACK_ONLY=no
-[ "${1:-}" = "--pack-only" ] && PACK_ONLY=yes
+PLAIN=no
+for arg in "$@"; do
+	case "$arg" in
+		--pack-only) PACK_ONLY=yes ;;
+		--plain)     PLAIN=yes ;;
+		*)           echo "[ERROR] unknown argument: $arg" >&2; exit 1 ;;
+	esac
+done
 
 log() { echo "==> $*"; }
 die() { echo "[ERROR] $*" >&2; exit 1; }
@@ -38,7 +48,8 @@ die() { echo "[ERROR] $*" >&2; exit 1; }
 
 PINS="NGINX_VERSION NGINX_SHA256 OPENSSL_VERSION OPENSSL_SHA256 OPENSSL_MODE
       NGINX_CLOJURE_SRC NGINX_CLOJURE_VERSION
-      BASE_IMAGE BUILD_PLATFORM MAKE_JOBS WITH_DEBUG APPLY_PROXY_PATCH"
+      BASE_IMAGE PLAIN_BASE_IMAGE BUILD_PLATFORM MAKE_JOBS WITH_DEBUG
+      APPLY_PROXY_PATCH"
 
 # versions.env holds the pins; an already-set environment variable wins, so a
 # single value can be overridden ad hoc without editing the file.
@@ -52,6 +63,18 @@ for k in $PINS; do
 	[ -n "$__p" ] && eval "$k=\$__p"
 	eval "export $k"
 done
+
+# A plain nginx has no nginx-clojure module, so neither the proxy patch nor the
+# debug logging it relies on are wanted. It is built on its own base image to
+# support older target hosts than the nginx-clojure distribution.
+WITH_NGINX_CLOJURE=yes
+if [ "$PLAIN" = "yes" ]; then
+	WITH_NGINX_CLOJURE=no
+	APPLY_PROXY_PATCH=no
+	WITH_DEBUG=no
+	BASE_IMAGE="$PLAIN_BASE_IMAGE"
+fi
+export WITH_NGINX_CLOJURE APPLY_PROXY_PATCH WITH_DEBUG BASE_IMAGE
 
 command -v docker >/dev/null || die "docker is required"
 
@@ -67,12 +90,20 @@ MODULE_SRC=$(cd "$MODULE_SRC" 2>/dev/null && pwd) \
 
 MODULE_DESC=$(git -C "$MODULE_SRC" describe --always --dirty 2>/dev/null || echo "no-git")
 
-DIST_NAME="nginx-clojure-${NGINX_CLOJURE_VERSION}-nginx-${NGINX_VERSION}"
+if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+	DIST_NAME="nginx-clojure-${NGINX_CLOJURE_VERSION}-nginx-${NGINX_VERSION}"
+else
+	DIST_NAME="nginx-${NGINX_VERSION}-linux-x64"
+fi
 IMAGE_TAG="nginx-clojure-builder:$(echo "$BASE_IMAGE" | tr ':/' '--')"
 
 log "distribution : $DIST_NAME"
 log "nginx        : $NGINX_VERSION"
-log "module       : $MODULE_SRC ($MODULE_DESC)"
+if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+	log "module       : $MODULE_SRC ($MODULE_DESC)"
+else
+	log "module       : none (plain nginx)"
+fi
 log "openssl      : $OPENSSL_MODE"
 log "base image   : $BASE_IMAGE ($BUILD_PLATFORM)"
 
@@ -113,7 +144,7 @@ docker run --rm \
 	-v "$DIR/container-build.sh":/work/container-build.sh:ro \
 	-e NGINX_VERSION -e NGINX_SHA256 \
 	-e OPENSSL_VERSION -e OPENSSL_SHA256 -e OPENSSL_MODE \
-	-e WITH_DEBUG -e APPLY_PROXY_PATCH -e MAKE_JOBS \
+	-e WITH_DEBUG -e APPLY_PROXY_PATCH -e MAKE_JOBS -e WITH_NGINX_CLOJURE \
 	-e BASE_IMAGE \
 	-e "ALLOW_UNPINNED=${ALLOW_UNPINNED:-0}" \
 	-e "DIST_NAME=$DIST_NAME" \
@@ -129,7 +160,9 @@ fi  # PACK_ONLY
 # Optional macOS binary (for local development only)
 # ---------------------------------------------------------------------------
 
-if [ -f "out/nginx-macosx" ]; then
+# build-macos.sh always builds with the nginx-clojure module, so its binary
+# must never end up in a plain distribution.
+if [ "$WITH_NGINX_CLOJURE" = "yes" ] && [ -f "out/nginx-macosx" ]; then
 	log "including locally built macOS binary (see build-macos.sh)"
 	install -m 0755 "out/nginx-macosx" "out/$DIST_NAME/nginx-macosx"
 fi

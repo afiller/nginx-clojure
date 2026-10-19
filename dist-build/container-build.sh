@@ -27,6 +27,7 @@ MODULE_SRC=/work/nginx-clojure
 : "${OPENSSL_MODE:=static}"
 : "${WITH_DEBUG:=yes}"
 : "${APPLY_PROXY_PATCH:=yes}"
+: "${WITH_NGINX_CLOJURE:=yes}"
 : "${ALLOW_UNPINNED:=0}"
 
 log() { echo "==> $*"; }
@@ -132,9 +133,11 @@ tar xzf "$CACHE_DIR/nginx-${NGINX_VERSION}.tar.gz"
 # The module source is mounted read-only; nginx' configure wants to be able to
 # stat it only, but make writes objects into the nginx tree, not into the
 # module dir. Copy anyway so a dirty checkout can never be modified.
-cp -a "$MODULE_SRC" "$BUILD_DIR/nginx-clojure-src"
-MODULE_C_DIR="$BUILD_DIR/nginx-clojure-src/src/c"
-[ -f "$MODULE_C_DIR/config" ] || die "no module config found at $MODULE_C_DIR"
+if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+	cp -a "$MODULE_SRC" "$BUILD_DIR/nginx-clojure-src"
+	MODULE_C_DIR="$BUILD_DIR/nginx-clojure-src/src/c"
+	[ -f "$MODULE_C_DIR/config" ] || die "no module config found at $MODULE_C_DIR"
+fi
 
 # ---------------------------------------------------------------------------
 # Configure + build
@@ -174,9 +177,9 @@ CONFIGURE_ARGS=(
 	--with-file-aio
 	# zlib / PCRE2 are picked up from the system (see Dockerfile)
 	--with-pcre-jit
-
-	--add-module="$MODULE_C_DIR"
 )
+
+[ "$WITH_NGINX_CLOJURE" = "yes" ] && CONFIGURE_ARGS+=(--add-module="$MODULE_C_DIR")
 
 # Deliberately NOT built (were in the upstream 0.6.0 binary, unused here):
 #   http_mp4_module      -- CVE-2024-7347 lives here, and no mp4 is served
@@ -205,32 +208,39 @@ log "assembling $DIST_NAME"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 
-install -m 0755 objs/nginx "$DIST/nginx-linux-x64"
+# The nginx-clojure layout names the binary per platform (setup.sh links the
+# matching one), a plain distribution is Linux only and keeps the plain name.
+if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+	install -m 0755 objs/nginx "$DIST/nginx-linux-x64"
+else
+	install -m 0755 objs/nginx "$DIST/nginx"
+fi
 
 cp -a conf "$DIST/conf"
 cp -a contrib "$DIST/contrib"
 cp -a html "$DIST/html"
 
-mkdir -p "$DIST/docs"
-cp -a "$BUILD_DIR/nginx-clojure-src/README.md"  "$DIST/docs/" 2>/dev/null || true
-cp -a "$BUILD_DIR/nginx-clojure-src/HISTORY.md" "$DIST/docs/" 2>/dev/null || true
-
-mkdir -p "$DIST/licenses"
+mkdir -p "$DIST/docs" "$DIST/licenses"
 cp -a LICENSE "$DIST/licenses/nginx.LICENSE"
-cp -a "$BUILD_DIR/nginx-clojure-src/LICENSE" "$DIST/licenses/nginx-clojure.LICENSE" 2>/dev/null || true
+if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+	cp -a "$BUILD_DIR/nginx-clojure-src/README.md"  "$DIST/docs/" 2>/dev/null || true
+	cp -a "$BUILD_DIR/nginx-clojure-src/HISTORY.md" "$DIST/docs/" 2>/dev/null || true
+	cp -a "$BUILD_DIR/nginx-clojure-src/LICENSE" "$DIST/licenses/nginx-clojure.LICENSE" 2>/dev/null || true
+fi
 if [ "$OPENSSL_MODE" = "static" ]; then
 	cp -a "$BUILD_DIR/openssl-${OPENSSL_VERSION}/LICENSE.txt" "$DIST/licenses/OpenSSL.LICENSE" 2>/dev/null || true
 fi
 # zlib / PCRE2 are dynamically linked system libraries, their licenses ship
 # with the distribution package on the target host.
 
+if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+	mkdir -p "$DIST/libs/res" "$DIST/jars" "$DIST/coroutine-udfs"
+fi
+
 # Runtime directories. setup.sh empties libs/ and refills it from build/libs,
 # so nothing is shipped in here -- but nginx needs the temp dirs to exist and
 # jvm_classpath "libs/*" needs the directory.
 mkdir -p "$DIST/logs" \
-         "$DIST/libs/res" \
-         "$DIST/jars" \
-         "$DIST/coroutine-udfs" \
          "$DIST/temp/client_temp" \
          "$DIST/temp/proxy_temp" \
          "$DIST/temp/fastcgi_temp" \
@@ -242,11 +252,19 @@ mkdir -p "$DIST/logs" \
 # ---------------------------------------------------------------------------
 
 {
-	echo "nginx-clojure distribution built by nginx-clojure/dist-build"
+	if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+		echo "nginx-clojure distribution built by nginx-clojure/dist-build"
+	else
+		echo "plain nginx distribution built by nginx-clojure/dist-build"
+	fi
 	echo
 	echo "dist name        : $DIST_NAME"
 	echo "nginx            : $NGINX_VERSION"
-	echo "nginx-clojure    : $(sed -n 's/^#define NGINX_CLOJURE_VER_NUM_STR "\(.*\)"/\1/p' "$BUILD_DIR/nginx-clojure-src/src/c/ngx_http_clojure_mem.h") (source: ${NGINX_CLOJURE_GIT_DESC:-unknown})"
+	if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+		echo "nginx-clojure    : $(sed -n 's/^#define NGINX_CLOJURE_VER_NUM_STR "\(.*\)"/\1/p' "$BUILD_DIR/nginx-clojure-src/src/c/ngx_http_clojure_mem.h") (source: ${NGINX_CLOJURE_GIT_DESC:-unknown})"
+	else
+		echo "nginx-clojure    : none (kit source: ${NGINX_CLOJURE_GIT_DESC:-unknown})"
+	fi
 	echo "pcre2 / zlib     : system libraries of $BASE_IMAGE (dynamic)"
 	echo "openssl          : $([ "$OPENSSL_MODE" = static ] && echo "$OPENSSL_VERSION (static)" || echo "system (dynamic)")"
 	echo "debug build      : $WITH_DEBUG"
@@ -258,6 +276,10 @@ mkdir -p "$DIST/logs" \
 } > "$DIST/docs/BUILD-INFO.txt"
 
 log "verifying binary"
-"$DIST/nginx-linux-x64" -V 2>&1 | sed 's/^/    /'
+if [ "$WITH_NGINX_CLOJURE" = "yes" ]; then
+	"$DIST/nginx-linux-x64" -V 2>&1 | sed 's/^/    /'
+else
+	"$DIST/nginx" -V 2>&1 | sed 's/^/    /'
+fi
 
 log "done: $DIST"

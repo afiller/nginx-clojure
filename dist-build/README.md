@@ -52,6 +52,23 @@ in `out/nginx-macosx` liegt.
 ./build-dist.sh --pack-only    # Sekunden, kein Rebuild
 ```
 
+### Fall 4: Reines nginx ohne nginx-clojure-Modul (für pmcp-setup)
+
+```bash
+cd dist-build
+./build-dist.sh --plain
+```
+
+Ergebnis: `out/nginx-<version>-linux-x64.tar.gz` mit dem Binary `nginx` (ohne
+Plattform-Suffix). Gebaut wird auf `PLAIN_BASE_IMAGE` (`ubuntu:20.04`, glibc
+2.31), das Binary läuft also auf Ubuntu 20.04, 22.04 und 24.04 — und übersteht
+ein Release-Upgrade von 20.04 auf 22.04 ohne Neubau.
+
+`--plain` schaltet Proxy-Patch und Debug-Build ab (beide gibt es nur wegen des
+Moduls) und packt nie `out/nginx-macosx` ein, denn `build-macos.sh` baut immer
+mit Modul. nginx- und OpenSSL-Version kommen aus derselben `versions.env` wie
+beim Modul-Build.
+
 ### Erster Build einer neuen nginx-Version
 
 Ist die Version noch nicht in `versions.env` gepinnt, bricht `build-dist.sh` ab
