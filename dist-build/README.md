@@ -69,6 +69,35 @@ Moduls) und packt nie `out/nginx-macosx` ein, denn `build-macos.sh` baut immer
 mit Modul. nginx- und OpenSSL-Version kommen aus derselben `versions.env` wie
 beim Modul-Build.
 
+### Fall 5: Alles in einem Durchgang (Release für pmcp-nginx-handler)
+
+```bash
+cd dist-build
+./build-all.sh --handler ../../../PMCP/Development/workspace/pmcp-nginx-handler
+```
+
+Baut macOS-Binary, Linux-Binary und Tarball, dazu das Java-Jar (`lein jar`),
+lädt das Jar als `nginx-clojure:nginx-clojure:<JAR_VERSION>` ins
+Maven-Repository und prüft den Upload per SHA-256. Mit `--handler` werden im
+konsumierenden Projekt das Tarball in `sources/` getauscht,
+`NGINX_CLOJURE_ARCHIVE` in `setup.sh` und die Jar-Version in `pom.xml`
+angepasst und alles gestaged — **committet wird nicht**.
+
+`JAR_VERSION` steht in `versions.env` und muss **vor jedem Upload erhöht**
+werden (`0.6.1-pathmate.1` → `.2`). Eine bereits hochgeladene Version erkennt
+das Script vor dem Build und bricht ab. Hat sich nur nginx/OpenSSL geändert,
+nicht der Java-Code: `--skip-deploy`. `--skip-macos` packt ein vorhandenes
+`out/nginx-macosx` ein, statt es neu zu bauen.
+
+Das Jar braucht ein eigenes Versions-Suffix, weil Upstream 0.6.1 nicht auf
+Clojars veröffentlicht hat — ein eigenes `0.6.1` würde mit einem späteren
+offiziellen Release kollidieren. Es enthält bewusst nicht
+`NativeCoroutineBuilderImp` (Profil `nativeCoroutine`), der Native-Coroutine-Modus
+wird nicht genutzt.
+
+Voraussetzungen: Docker, `brew install leiningen maven`, Zugangsdaten in
+`~/.pathmate-credentials.properties` (`repo.user` / `repo.pass`).
+
 ### Erster Build einer neuen nginx-Version
 
 Ist die Version noch nicht in `versions.env` gepinnt, bricht `build-dist.sh` ab
