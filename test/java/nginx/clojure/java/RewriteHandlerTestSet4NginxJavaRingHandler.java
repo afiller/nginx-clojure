@@ -38,6 +38,27 @@ public class RewriteHandlerTestSet4NginxJavaRingHandler {
 		
 	}
 	
+	/**
+	 * Returns an HTTP 301 redirect (status + Location header + HTML body) directly from the
+	 * rewrite phase, mirroring a real-world redirect handler. This exercises the synchronous
+	 * rewrite-phase direct-response path in {@link NginxClojureRT#handleResponse}. Before the
+	 * use-after-free fix, hammering this handler over a reused HTTP keepalive connection
+	 * crashed the nginx worker: finalizing the request from inside the rewrite phase led to
+	 * ngx_http_set_keepalive() freeing the request and its pool (including the module ctx)
+	 * while the phase engine was still unwinding.
+	 */
+	public static class RedirectRewriteHandler implements NginxJavaRingHandler {
+		@Override
+		public Object[] invoke(Map<String, Object> request) {
+			return new Object[] {
+					Constants.NGX_HTTP_MOVED_PERMANENTLY,
+					ArrayMap.create("Content-Type", "text/html", "Location", "http://localhost:8080/moved"),
+					"<html><head><title>301 Moved Permanently</title></head>"
+							+ "<body><a href=\"http://localhost:8080/moved\">moved</a></body></html>"
+			};
+		}
+	}
+
 	public static class HeadersRewriteHandler implements NginxJavaRingHandler {
 		@Override
 		public Object[] invoke(Map<String, Object> request) throws IOException {

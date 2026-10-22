@@ -1627,6 +1627,25 @@ public class NginxClojureRT extends MiniConstants {
 		if (rc == NGX_OK &&  phase != -1) {
 			ngx_http_ignore_next_response(nr);
 		}
+		if (phase == NGX_HTTP_REWRITE_PHASE) {
+			/*
+			 * We are executing synchronously *inside* the rewrite phase handler
+			 * (ngx_http_clojure_rewrite_handler) on the nginx main thread, and the full
+			 * response has already been sent above. Calling ngx_http_finalize_request()
+			 * here (as handleReturnCodeFromHandler does for a phase handler) finalizes the
+			 * request from under the still-running phase engine; under HTTP keepalive that
+			 * path (ngx_http_finalize_connection -> ngx_http_set_keepalive ->
+			 * ngx_http_free_request) synchronously frees the request and its pool -- including
+			 * this module's ctx, which the surrounding C rewrite handler dereferences right
+			 * after we return and which ngx_http_run_posted_requests() also touches -- causing
+			 * a use-after-free (worker SIGSEGV/SIGABRT under load, e.g. redirect responses on a
+			 * reused keepalive connection). Instead hand the return code back to the phase
+			 * checker (ngx_http_core_rewrite_phase) and let *it* finalize after this handler
+			 * has fully unwound, exactly like the content phase (phase == -1) already does.
+			 * NGX_OK makes the checker finalize the already-sent response cleanly.
+			 */
+			return (int) (rc == NGX_ERROR ? NGX_ERROR : NGX_OK);
+		}
 		return (int)handleReturnCodeFromHandler(nr, phase, rc, status);
 	}
 

@@ -135,6 +135,50 @@
              (is (= "my=test" (b :query-string)))
              (is (= "utf-8" (b :character-encoding))))))
 
+(deftest ^{:remote true} test-redirect-keepalive-no-uaf
+  (testing "many 301 redirects over one reused keepalive connection do not crash the worker"
+    ;; Regression test for the rewrite-phase use-after-free: a java rewrite handler that
+    ;; returns a direct 301 response used to finalize the request from *inside* the rewrite
+    ;; phase, so under HTTP keepalive ngx_http_set_keepalive() freed the request and its pool
+    ;; (including the module ctx) while the phase engine was still unwinding. Replaying many
+    ;; redirects on a single reused connection reliably tripped it -- run the worker under
+    ;; AddressSanitizer to catch the free/use, or watch for a worker SIGSEGV/SIGABRT.
+    (let [n 300
+          sock (java.net.Socket. ^String *host* (Integer/parseInt *port*))]
+      (try
+        (.setSoTimeout sock 10000)
+        (let [out (.getOutputStream sock)
+              in  (.getInputStream sock)
+              read-line (fn []
+                          (let [sb (StringBuilder.)]
+                            (loop []
+                              (let [c (.read in)]
+                                (cond
+                                  (= c -1) (when (pos? (.length sb)) (.toString sb))
+                                  (= c 10) (.toString sb)
+                                  (= c 13) (recur)
+                                  :else (do (.append sb (char c)) (recur)))))))
+              req (.getBytes (str "GET /javarewrite/redirect HTTP/1.1\r\n"
+                                  "Host: " *host* "\r\n"
+                                  "Connection: keep-alive\r\n\r\n")
+                             "ascii")]
+          (dotimes [i n]
+            (.write out req)
+            (.flush out)
+            (let [status (read-line)]
+              (is (and status (.contains ^String status "301"))
+                  (str "request " i " expected a 301 status line, got: " status))
+              ;; drain headers (capture content-length) then read the body so the
+              ;; connection stays in sync for the next keepalive request
+              (loop [len 0]
+                (let [line (read-line)]
+                  (cond
+                    (nil? line) (is false (str "connection closed early while reading headers, request " i))
+                    (= line "") (dotimes [_ len] (.read in))
+                    :else (let [m (re-matches #"(?i)content-length:\s*(\d+)\s*" line)]
+                            (recur (if m (Integer/parseInt (second m)) len)))))))))
+        (finally (.close sock))))))
+
 (deftest ^{:remote true} test-form
   (testing "form method=get"
            (let [r (client/get (str "http://" *host* ":" *port* "/form") {:coerce :unexceptional, :query-params {:foo "bar"}})

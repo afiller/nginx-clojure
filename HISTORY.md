@@ -4,6 +4,25 @@ Downloads & Release History
 1. [Binaries of Releases](http://sourceforge.net/projects/nginx-clojure/files/)
 1. [Sources of Releases](https://github.com/nginx-clojure/nginx-clojure/releases)
 
+## 0.6.1 (2026-09-12)
+
+1. New Feature: #282 Directives for jvm int/exit handler properties
+1. New Feature: #283 Enable coroutine context for invoking config method of a handler with coroutine mode
+1. New Feature: #284 Rewrite handlers can add/update request headers
+1. New Feature: #286 Support load-balancing handler
+1. New Feature: #294 Support Nginx 1.25.0
+1. Bug Fix: #279 Java.lang.VerifyError
+1. Bug Fix: #280 NginxSharedHashMap.atomicAddLong returns wrong value when value is very large
+1. Bug Fix: #281 Remote debug issue on jdk13+ with coroutine mode
+1. Bug Fix: #302 Error: undeclared "lcf" during installation
+1. Bug Fix: #305 Use-after-free when a rewrite-phase handler returns a direct response under keepalive
+
+Note:
+
+- Source distribution and JAR artifacts are provided.
+- No prebuilt nginx binaries with the nginx-clojure module compiled in are provided.
+
+
 ## 0.6.0 (2023-03-18)
 
 1. New Feature: #270 All handlers can be used at http & server context
